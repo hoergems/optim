@@ -7,27 +7,21 @@ class Optim:
         waypoints = self.get_waypoints()
         bad_points = self.get_bad_points()
         K = self.K(waypoints)        
-        f, f2, epsi_symb_vec, A = self.get_f(waypoints, K)               
-        symb_arr = flatten([[epsi_symb_vec[i][j] for j in xrange(len(epsi_symb_vec[i]))] for i in xrange(len(epsi_symb_vec))])              
-        self.optimize(waypoints, f[0], symb_arr, A, epsi_symb_vec, f2)        
+        f, f2, epsi, symb_arr, A = self.get_f(waypoints, K)        
+        self.optimize(waypoints, f[0], A, epsi, symb_arr, f2)        
         
-    def optimize(self, waypoints, f, symb_arr, A, epsi_symb_vec, f2=None):
-        print f
-        sleep
+    def optimize(self, waypoints, f, A, epsi, symb_arr, f2=None):       
         vals = Matrix(flatten([waypoints[i] for i in xrange(1, len(waypoints) - 1)]))        
-        A_inv = A.inv()  
-        #print f.expand()
-        #f2 = f2.subs(symb_arr[len(symb_arr) - 2], 10.0)
-        #f2 = f2.subs(symb_arr[len(symb_arr) - 1], 10.0)
-        #print " "
-        #print f2.expand()
-        #sleep  
+        A_inv = A.inv() 
         gradient = self.gradient(f, symb_arr)
         delta = 10000.0
         ev = 10000.0
         while true:
             grad = gradient            
             for j in xrange(len(symb_arr)):
+                print symb_arr
+                print vals
+                print flatten(epsi)
                 grad = grad.subs(symb_arr[j], vals[j]) 
                        
             vals = vals - (1.0 / 2.0) * A_inv * grad
@@ -72,14 +66,27 @@ class Optim:
               np.array([8.0, 7.0])]
         return bp
     
-    def K(self, waypoints):        
+    def K(self, waypoints):
+        K = Matrix([[1, 0, 0, 0],
+                    [-1, 1, 0, 0],
+                    [0, 0, -1, 1],
+                    [0, 0, 0, -1]])
+        
+        return K
+        #I = Matrix.eye(len(waypoints[0]))
+        #K_t = TensorProduct(K, I)
+        print K_t.shape
+        sleep
+        K = Matrix.eye(len(waypoints[0]))
+        
+        print K
+        sleep      
         K = Matrix.zeros(len(waypoints) - 2, len(waypoints) - 2)
         K[0, 0] = 1.0
         K[K.rows - 1, K.cols - 1] = -1.0
         for i in xrange(1, K.rows - 1):
             K[i, i - 1] = -1.0
-            K[i, i] = 1.0 
-        print K                 
+            K[i, i] = 1.0
         return K
     
     def eval_f(self, f, epsi_symb_vec, epsi_val_vec):                
@@ -87,43 +94,37 @@ class Optim:
         return f(*flatten(epsi_val_vec))
         
     def get_f(self, waypoints, K):
-        I = Matrix.eye(len(waypoints[0]))                
-        K_t = TensorProduct(K, I)            
-        #K_t = K         
-        epsi = []
+        I = Matrix.eye(len(waypoints[0]))
+        K = TensorProduct(K, I)
+        epsi = [] 
+        epsi_symb_vec = [Symbol("x_0_" + str(i)) for i in xrange(len(waypoints[0]))]
         for i in xrange(1, len(waypoints) - 1):
-            ep = []
-            for j in xrange(len(waypoints[i])):                
-                x_str = "x_" + str(i) + "_" + str(j)
-                ep.append(Symbol(x_str))
-            epsi.append(Matrix(ep))                          
-        epsi_vec = Matrix(epsi)        
-        A = K_t.T * K_t        
-        e = [-waypoints[0][i] for i in xrange(len(waypoints[0]))]
-        for i in xrange(len(waypoints) - 4):
+            for j in xrange(len(waypoints[0])):                
+                epsi.append(Symbol("x_" + str(i) + "_" + str(j)))
+                epsi_symb_vec.append(epsi[-1])                                 
+        epsi_vec = Matrix(2 * epsi)
+        epsi_symb_vec.extend([Symbol("x_" + str(len(waypoints) - 1) + "_" + str(i)) for i in xrange(len(waypoints[0]))])
+        e = [-Symbol("x_0_" + str(i)) for i in xrange(len(waypoints[0]))]            
+        #e = [-waypoints[0][i] for i in xrange(len(waypoints[0]))]
+        for i in xrange(len(waypoints) - 2):
             for j in xrange(len(waypoints[i])):
                 e.append(0.0)
-        e.extend([waypoints[len(waypoints) - 1][i] for i in xrange(len(waypoints[0]))])                 
-        e = Matrix(flatten(e))               
-        a = (1.0 / 2.0) * epsi_vec.T * A * epsi_vec
-        b = K_t.T * e
-        c = (1.0 / 2.0) * e.T * e      
-        f1 = a + epsi_vec.T * b + c 
-                     
+        e.extend([Symbol("x_" + str(len(waypoints) - 1) + "_" + str(j)) for j in xrange(len(waypoints[0]))])        
+        #e.extend([waypoints[len(waypoints) - 1][i] for i in xrange(len(waypoints[0]))])                 
+        e = Matrix(flatten(e))
+        
+        f1 = 0.5 * epsi_vec.T * K.T * K * epsi_vec + epsi_vec.T * K.T * e + 0.5 * e.T * e
         sum = 0.0        
         epsi_vec2 = [[Symbol("x_" + str(i) + "_" + str(j)) for j in xrange(len(waypoints[0]))] for i in xrange(len(waypoints))]
+        
         
         for i in xrange(1, len(epsi_vec2)):
             s1 = 0.0
             for j in xrange(len(waypoints[0])):
-                s1 += np.square(epsi_vec2[i][j] - epsi_vec2[i - 1][j])
+                s1 += (epsi_vec2[i][j] - epsi_vec2[i - 1][j])**2
             sum += s1
-        f2 = (1.0/ 2.0) * sum
-        
-        for i in xrange(len(waypoints[0])):
-            f2 = f2.subs(epsi_vec2[0][i], waypoints[0][i])
-            f2 = f2.subs(epsi_vec2[len(epsi_vec2) - 1][i], waypoints[len(waypoints) - 1][i])                              
-        return f1, f2, epsi, A
+        f2 = (1.0 / 2.0) * sum                       
+        return f1, f2, epsi_vec, epsi_symb_vec, K.T * K
     
     def calc_f_dist(self, waypoints, bad_points):
         for waypoint in waypoints:
